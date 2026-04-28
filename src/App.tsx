@@ -431,6 +431,9 @@ function App() {
             Order Placing
           </button>
         </nav>
+        <p className="build-stamp" title="Git commit baked into this JS bundle (confirms Vercel deployed latest main).">
+          Build <code>{__BUILD_SHA__}</code>
+        </p>
       </aside>
 
       <main className="content">
