@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -12,110 +12,10 @@ import {
   YAxis,
 } from 'recharts'
 
-type InventoryItem = {
-  id: string
-  itemName: string
-  sku: string
-  category: 'Medication' | 'Consumable' | 'Equipment'
-  clinicName: string
-  currentQuantity: number
-  reorderLevel: number
-  unit: string
-  unitCost: number
-  lastUpdated: string
-}
-
-type ConsumptionRecord = {
-  month: string
-  clinic: string
-  item: string
-  openingStock: number
-  receivedStock: number
-  consumedStock: number
-  closingStock: number
-  variance: number
-}
-
-type OrderStatus = 'Draft' | 'Submitted' | 'Approved' | 'Fulfilled' | 'Cancelled'
-
-type ClinicOrder = {
-  id: string
-  clinicName: string
-  items: { itemName: string; quantity: number; unitCost: number }[]
-  preferredDeliveryDate: string
-  comments: string
-  status: OrderStatus
-  createdAt: string
-}
-
-const clinics = ['All clinics', 'Main Clinic', 'North Clinic', 'South Clinic', 'Pharmacy']
-const categories = ['All', 'Medication', 'Consumable', 'Equipment']
-const statusFilters = ['All', 'In stock', 'Low stock', 'Critical', 'Out of stock']
-
-const seedInventory: InventoryItem[] = [
-  { id: '1', itemName: 'Sterile Gloves', sku: 'KH-C-101', category: 'Consumable', clinicName: 'Main Clinic', currentQuantity: 180, reorderLevel: 100, unit: 'boxes', unitCost: 18, lastUpdated: '2026-04-21' },
-  { id: '2', itemName: 'Paracetamol 500mg', sku: 'KH-M-114', category: 'Medication', clinicName: 'Pharmacy', currentQuantity: 72, reorderLevel: 90, unit: 'strips', unitCost: 4, lastUpdated: '2026-04-20' },
-  { id: '3', itemName: 'IV Cannula', sku: 'KH-C-120', category: 'Consumable', clinicName: 'North Clinic', currentQuantity: 20, reorderLevel: 50, unit: 'units', unitCost: 12, lastUpdated: '2026-04-18' },
-  { id: '4', itemName: 'Pulse Oximeter', sku: 'KH-E-210', category: 'Equipment', clinicName: 'South Clinic', currentQuantity: 1, reorderLevel: 6, unit: 'units', unitCost: 1200, lastUpdated: '2026-04-19' },
-  { id: '5', itemName: 'Amoxicillin', sku: 'KH-M-144', category: 'Medication', clinicName: 'Main Clinic', currentQuantity: 0, reorderLevel: 55, unit: 'strips', unitCost: 15, lastUpdated: '2026-04-20' },
-  { id: '6', itemName: 'Syringe 5ml', sku: 'KH-C-130', category: 'Consumable', clinicName: 'North Clinic', currentQuantity: 260, reorderLevel: 120, unit: 'units', unitCost: 5, lastUpdated: '2026-04-21' },
-  { id: '7', itemName: 'Insulin Pen', sku: 'KH-M-166', category: 'Medication', clinicName: 'South Clinic', currentQuantity: 19, reorderLevel: 40, unit: 'units', unitCost: 380, lastUpdated: '2026-04-19' },
-  { id: '8', itemName: 'Nebulizer Kit', sku: 'KH-E-245', category: 'Equipment', clinicName: 'Main Clinic', currentQuantity: 12, reorderLevel: 10, unit: 'kits', unitCost: 860, lastUpdated: '2026-04-20' },
-]
-
-const usageByKey: Record<string, string[]> = {
-  'Main Clinic': ['Syringe 5ml used 42 units yesterday', 'Sterile Gloves used 30 boxes in 3 days'],
-  'North Clinic': ['IV Cannula usage rose 18% this week', 'Syringe 5ml used 60 units yesterday'],
-  'South Clinic': ['Insulin Pen usage stable for 14 days', 'Pulse Oximeter moved to emergency bay'],
-  Pharmacy: ['Paracetamol dispensed 380 strips this week', 'Amoxicillin pending replenishment'],
-}
-
-const ordersByKey: Record<string, string[]> = {
-  'Main Clinic': ['ORD-2438 submitted for Amoxicillin (pending)', 'ORD-2429 fulfilled for Nebulizer Kit'],
-  'North Clinic': ['ORD-2414 approved for IV Cannula', 'ORD-2402 fulfilled for Syringe 5ml'],
-  'South Clinic': ['ORD-2398 submitted for Insulin Pen', 'ORD-2380 fulfilled for Pulse Oximeter'],
-  Pharmacy: ['ORD-2377 approved for Paracetamol', 'ORD-2371 draft for cold-chain items'],
-}
-
-const consumptionData: ConsumptionRecord[] = [
-  { month: '2026-01', clinic: 'Main Clinic', item: 'Sterile Gloves', openingStock: 140, receivedStock: 120, consumedStock: 170, closingStock: 90, variance: -5 },
-  { month: '2026-02', clinic: 'Main Clinic', item: 'Sterile Gloves', openingStock: 90, receivedStock: 140, consumedStock: 160, closingStock: 70, variance: 3 },
-  { month: '2026-03', clinic: 'Main Clinic', item: 'Sterile Gloves', openingStock: 70, receivedStock: 150, consumedStock: 155, closingStock: 65, variance: 0 },
-  { month: '2026-01', clinic: 'North Clinic', item: 'IV Cannula', openingStock: 90, receivedStock: 40, consumedStock: 75, closingStock: 55, variance: 10 },
-  { month: '2026-02', clinic: 'North Clinic', item: 'IV Cannula', openingStock: 55, receivedStock: 60, consumedStock: 80, closingStock: 35, variance: -8 },
-  { month: '2026-03', clinic: 'North Clinic', item: 'IV Cannula', openingStock: 35, receivedStock: 45, consumedStock: 60, closingStock: 20, variance: -6 },
-  { month: '2026-01', clinic: 'South Clinic', item: 'Insulin Pen', openingStock: 35, receivedStock: 20, consumedStock: 18, closingStock: 37, variance: 2 },
-  { month: '2026-02', clinic: 'South Clinic', item: 'Insulin Pen', openingStock: 37, receivedStock: 30, consumedStock: 25, closingStock: 42, variance: 1 },
-  { month: '2026-03', clinic: 'South Clinic', item: 'Insulin Pen', openingStock: 42, receivedStock: 10, consumedStock: 33, closingStock: 19, variance: -4 },
-]
-
-const seedOrders: ClinicOrder[] = [
-  {
-    id: 'ORD-2438',
-    clinicName: 'Main Clinic',
-    items: [{ itemName: 'Amoxicillin', quantity: 120, unitCost: 15 }],
-    preferredDeliveryDate: '2026-04-24',
-    comments: 'Urgent refill',
-    status: 'Submitted',
-    createdAt: '2026-04-21',
-  },
-  {
-    id: 'ORD-2429',
-    clinicName: 'Main Clinic',
-    items: [{ itemName: 'Nebulizer Kit', quantity: 3, unitCost: 860 }],
-    preferredDeliveryDate: '2026-04-18',
-    comments: 'Quarterly maintenance',
-    status: 'Fulfilled',
-    createdAt: '2026-04-17',
-  },
-]
-
-const getStockStatus = (item: InventoryItem) => {
-  if (item.currentQuantity === 0) return 'Out of stock'
-  if (item.currentQuantity <= Math.ceil(item.reorderLevel * 0.5)) return 'Critical'
-  if (item.currentQuantity <= item.reorderLevel) return 'Low stock'
-  return 'In stock'
-}
+import { useStakeholderExcel } from './hooks/useStakeholderExcel'
+import type { ClinicOrder, ConsumptionRecord, OrderStatus } from './types/dashboard'
+import { aggregateStakeholderToConsumption, stakeholderRowsToClinicOrders } from './utils/stakeholderTransforms'
+import { baseRelativeUrl } from './utils/assetUrl'
 
 const formatMonth = (value: string) => {
   const [year, month] = value.split('-')
@@ -125,70 +25,170 @@ const formatMonth = (value: string) => {
   })
 }
 
-function App() {
-  const [activePage, setActivePage] = useState<'inventory' | 'consumption' | 'orders'>('inventory')
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedClinic, setSelectedClinic] = useState('All clinics')
-  const [selectedCategory, setSelectedCategory] = useState('All')
-  const [selectedStatus, setSelectedStatus] = useState('All')
-  const [inventorySearch, setInventorySearch] = useState('')
-  const [drilldownKey, setDrilldownKey] = useState('Main Clinic')
+type StockPressureKind = 'mom-spike' | 'vs-avg' | 'trend'
 
-  const [consumptionClinic, setConsumptionClinic] = useState('All clinics')
-  const [consumptionProduct, setConsumptionProduct] = useState('All')
+type StockPressureSignal = {
+  id: string
+  kind: StockPressureKind
+  /** Short label for the pill (uses real % / ratio — not capped like the old chart). */
+  metricShort: string
+  sortRank: number
+  message: string
+}
+
+function App() {
+  const [activePage, setActivePage] = useState<'consumption' | 'orders'>('consumption')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const [consumptionFilterClinic, setConsumptionFilterClinic] = useState('')
+  const [consumptionFilterItem, setConsumptionFilterItem] = useState('')
   const [fromMonth, setFromMonth] = useState('2026-01')
   const [toMonth, setToMonth] = useState('2026-03')
+  type ConsumptionDataMode = 'rollup-month' | 'rollup-clinic' | 'rollup-item' | 'detail-lines'
+  const [consumptionDataMode, setConsumptionDataMode] = useState<ConsumptionDataMode>('rollup-month')
+  const [consumptionPageIndex, setConsumptionPageIndex] = useState(0)
+  const consumptionPageSize = 25
 
-  const [orderClinic, setOrderClinic] = useState('Main Clinic')
-  const [orderItem, setOrderItem] = useState('Sterile Gloves')
+  const [orderClinic, setOrderClinic] = useState('')
+  const [orderItem, setOrderItem] = useState('')
   const [orderQty, setOrderQty] = useState(10)
-  const [deliveryDate, setDeliveryDate] = useState('2026-04-25')
+  const [deliveryDate, setDeliveryDate] = useState('')
   const [comments, setComments] = useState('')
   const [orderLines, setOrderLines] = useState<{ itemName: string; quantity: number; unitCost: number }[]>([])
-  const [orders, setOrders] = useState<ClinicOrder[]>(seedOrders)
-  const [inventory] = useState<InventoryItem[]>(seedInventory)
+  const [orders, setOrders] = useState<ClinicOrder[]>([])
+  const [orderSearchInput, setOrderSearchInput] = useState('')
+  const [orderSearchQuery, setOrderSearchQuery] = useState('')
 
-  const filteredInventory = useMemo(() => {
-    return inventory.filter((item) => {
-      const clinicMatch = selectedClinic === 'All clinics' || item.clinicName === selectedClinic
-      const categoryMatch = selectedCategory === 'All' || item.category === selectedCategory
-      const status = getStockStatus(item)
-      const statusMatch = selectedStatus === 'All' || status === selectedStatus
-      const searchMatch = [item.itemName, item.sku, item.clinicName]
-        .join(' ')
-        .toLowerCase()
-        .includes(inventorySearch.toLowerCase())
-      return clinicMatch && categoryMatch && statusMatch && searchMatch
-    })
-  }, [inventory, selectedClinic, selectedCategory, selectedStatus, inventorySearch])
+  const { rows: stakeholderRows, loading: stakeholderLoading, error: stakeholderError, hasStakeholderData } =
+    useStakeholderExcel()
+  const ordersSeededFromExcel = useRef(false)
 
-  const inventoryKpis = useMemo(() => {
-    const totalSkus = new Set(filteredInventory.map((item) => item.sku)).size
-    const lowStock = filteredInventory.filter((item) => getStockStatus(item) === 'Low stock').length
-    const outOfStock = filteredInventory.filter((item) => getStockStatus(item) === 'Out of stock').length
-    const inventoryValue = filteredInventory.reduce(
-      (sum, item) => sum + item.currentQuantity * item.unitCost,
-      0,
-    )
-    return { totalSkus, lowStock, outOfStock, inventoryValue }
-  }, [filteredInventory])
+  const consumptionFromStakeholder = useMemo(
+    () => aggregateStakeholderToConsumption(stakeholderRows),
+    [stakeholderRows],
+  )
+  const usingStakeholderSource = hasStakeholderData && !stakeholderError
+  const effectiveConsumption: ConsumptionRecord[] = consumptionFromStakeholder
 
-  const stockByClinic = useMemo(() => {
-    const byClinic: Record<string, number> = {}
-    filteredInventory.forEach((item) => {
-      byClinic[item.clinicName] = (byClinic[item.clinicName] || 0) + item.currentQuantity
-    })
-    return Object.entries(byClinic).map(([clinic, quantity]) => ({ clinic, quantity }))
-  }, [filteredInventory])
+  useEffect(() => {
+    if (!stakeholderRows.length) return
+    const months = [...new Set(stakeholderRows.map((r) => r.month))].sort()
+    setFromMonth(months[0] ?? '2026-01')
+    setToMonth(months[months.length - 1] ?? '2026-03')
+  }, [stakeholderRows])
+
+  useEffect(() => {
+    if (stakeholderLoading || ordersSeededFromExcel.current) return
+    if (hasStakeholderData) {
+      setOrders(stakeholderRowsToClinicOrders(stakeholderRows))
+      ordersSeededFromExcel.current = true
+    }
+  }, [stakeholderLoading, hasStakeholderData, stakeholderRows])
+
+  const clinicSuggestions = useMemo(() => {
+    return [...new Set(effectiveConsumption.map((r) => r.clinic))].sort()
+  }, [effectiveConsumption])
+
+  const itemSuggestions = useMemo(() => {
+    return [...new Set(effectiveConsumption.map((r) => r.item))].sort().slice(0, 400)
+  }, [effectiveConsumption])
+
+  useEffect(() => {
+    setConsumptionPageIndex(0)
+  }, [consumptionFilterClinic, consumptionFilterItem, fromMonth, toMonth, consumptionDataMode])
+
+  const orderClinicOptions = useMemo(() => {
+    return [...new Set(stakeholderRows.map((r) => r.clinicName))].sort()
+  }, [stakeholderRows])
+
+  const productNamesForOrders = useMemo(() => {
+    return [...new Set(stakeholderRows.map((r) => r.item))].sort()
+  }, [stakeholderRows])
+
+  useEffect(() => {
+    if (!orderClinicOptions.length) return
+    if (!orderClinic || !orderClinicOptions.includes(orderClinic)) {
+      setOrderClinic(orderClinicOptions[0])
+    }
+  }, [orderClinicOptions, orderClinic])
+
+  useEffect(() => {
+    if (!productNamesForOrders.length) return
+    if (!orderItem || !productNamesForOrders.includes(orderItem)) {
+      setOrderItem(productNamesForOrders[0])
+    }
+  }, [productNamesForOrders, orderItem])
 
   const filteredConsumption = useMemo(() => {
-    return consumptionData.filter((row) => {
-      const clinicMatch = consumptionClinic === 'All clinics' || row.clinic === consumptionClinic
-      const itemMatch = consumptionProduct === 'All' || row.item === consumptionProduct
+    const clinicQ = consumptionFilterClinic.trim().toLowerCase()
+    const itemQ = consumptionFilterItem.trim().toLowerCase()
+    return effectiveConsumption.filter((row) => {
+      const clinicMatch = !clinicQ || row.clinic.toLowerCase().includes(clinicQ)
+      const itemMatch = !itemQ || row.item.toLowerCase().includes(itemQ)
       const monthMatch = row.month >= fromMonth && row.month <= toMonth
       return clinicMatch && itemMatch && monthMatch
     })
-  }, [consumptionClinic, consumptionProduct, fromMonth, toMonth])
+  }, [effectiveConsumption, consumptionFilterClinic, consumptionFilterItem, fromMonth, toMonth])
+
+  const consumptionViewStats = useMemo(() => {
+    const clinics = new Set(filteredConsumption.map((r) => r.clinic))
+    const items = new Set(filteredConsumption.map((r) => r.item))
+    const qty = filteredConsumption.reduce((s, r) => s + r.consumedStock, 0)
+    return {
+      totalQty: qty,
+      clinicCount: clinics.size,
+      skuCount: items.size,
+      rowCount: filteredConsumption.length,
+    }
+  }, [filteredConsumption])
+
+  const rollupByMonth = useMemo(() => {
+    const map: Record<string, { qty: number; clinics: Set<string>; lineRows: number }> = {}
+    filteredConsumption.forEach((row) => {
+      if (!map[row.month]) map[row.month] = { qty: 0, clinics: new Set(), lineRows: 0 }
+      map[row.month].qty += row.consumedStock
+      map[row.month].clinics.add(row.clinic)
+      map[row.month].lineRows += 1
+    })
+    return Object.keys(map)
+      .sort()
+      .map((monthKey) => ({
+        monthKey,
+        monthLabel: formatMonth(monthKey),
+        totalQty: map[monthKey].qty,
+        clinicCount: map[monthKey].clinics.size,
+        lineRows: map[monthKey].lineRows,
+      }))
+  }, [filteredConsumption])
+
+  const rollupByClinic = useMemo(() => {
+    const map: Record<string, number> = {}
+    filteredConsumption.forEach((row) => {
+      map[row.clinic] = (map[row.clinic] || 0) + row.consumedStock
+    })
+    return Object.entries(map)
+      .map(([clinic, totalQty]) => ({ clinic, totalQty }))
+      .sort((a, b) => b.totalQty - a.totalQty)
+  }, [filteredConsumption])
+
+  const rollupByItem = useMemo(() => {
+    const map: Record<string, { qty: number; unit?: string }> = {}
+    filteredConsumption.forEach((row) => {
+      const prev = map[row.item]
+      if (prev) prev.qty += row.consumedStock
+      else map[row.item] = { qty: row.consumedStock, unit: row.unit }
+    })
+    return Object.entries(map)
+      .map(([item, v]) => ({ item, totalQty: v.qty, unit: v.unit }))
+      .sort((a, b) => b.totalQty - a.totalQty)
+  }, [filteredConsumption])
+
+  const paginatedDetailLines = useMemo(() => {
+    const start = consumptionPageIndex * consumptionPageSize
+    return filteredConsumption.slice(start, start + consumptionPageSize)
+  }, [filteredConsumption, consumptionPageIndex, consumptionPageSize])
+
+  const consumptionDetailPageCount = Math.max(1, Math.ceil(filteredConsumption.length / consumptionPageSize))
 
   const monthlyTrend = useMemo(() => {
     const byMonth: Record<string, number> = {}
@@ -208,45 +208,135 @@ function App() {
     return Object.entries(byClinic).map(([clinic, consumed]) => ({ clinic, consumed }))
   }, [filteredConsumption])
 
+  /** Chart only: top clinics so bars stay readable */
+  const clinicComparisonTop = useMemo(() => {
+    return [...clinicComparison].sort((a, b) => b.consumed - a.consumed).slice(0, 12)
+  }, [clinicComparison])
+
+  const clinicBarChartHeight = useMemo(() => {
+    return Math.min(420, Math.max(200, clinicComparisonTop.length * 28))
+  }, [clinicComparisonTop.length])
+
   const consumptionAlerts = useMemo(() => {
-    const alerts: string[] = []
+    if (!usingStakeholderSource || !filteredConsumption.length) return []
+    const byClinic: Record<string, number> = {}
     filteredConsumption.forEach((row) => {
-      if (row.consumedStock > row.openingStock + row.receivedStock * 0.85) {
-        alerts.push(`${row.clinic} ${row.item}: sudden spike in ${formatMonth(row.month)}`)
-      }
-      if (row.closingStock === 0 || row.closingStock < 10) {
-        alerts.push(`${row.clinic} ${row.item}: frequent stockout risk`)
-      }
-      if (Math.abs(row.variance) > 6) {
-        alerts.push(`${row.clinic} ${row.item}: abnormal variance (${row.variance})`)
-      }
+      byClinic[row.clinic] = (byClinic[row.clinic] || 0) + row.consumedStock
     })
-    return [...new Set(alerts)].slice(0, 4)
-  }, [filteredConsumption])
+    const ranked = Object.entries(byClinic)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([clinic, qty]) => `${clinic}: total ordered quantity in view (${qty.toLocaleString()} units)`)
+    const groups = new Map<string, ConsumptionRecord[]>()
+    filteredConsumption.forEach((row) => {
+      const k = `${row.clinic}|${row.item}`
+      const list = groups.get(k)
+      if (list) list.push(row)
+      else groups.set(k, [row])
+    })
+    const spikes: string[] = []
+    for (const [, rows] of groups) {
+      const sorted = [...rows].sort((a, b) => a.month.localeCompare(b.month))
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1].consumedStock
+        const cur = sorted[i].consumedStock
+        if (prev > 0 && cur > prev * 2) {
+          spikes.push(
+            `${sorted[i].clinic} · ${sorted[i].item}: month-over-month order spike in ${formatMonth(sorted[i].month)}`,
+          )
+        }
+      }
+    }
+    return [...ranked, ...new Set(spikes)].slice(0, 6)
+  }, [filteredConsumption, usingStakeholderSource])
+
+  /** Inferred from order history: not live inventory, but rising orders often indicate clinics chasing low stock. */
+  const stockPressureSignals = useMemo((): StockPressureSignal[] => {
+    if (!usingStakeholderSource || filteredConsumption.length < 2) return []
+    const groups = new Map<string, ConsumptionRecord[]>()
+    filteredConsumption.forEach((row) => {
+      const k = JSON.stringify([row.clinic, row.item])
+      const list = groups.get(k)
+      if (list) list.push(row)
+      else groups.set(k, [row])
+    })
+    const signals: StockPressureSignal[] = []
+    for (const rows of groups.values()) {
+      const sorted = [...rows].sort((a, b) => a.month.localeCompare(b.month))
+      if (sorted.length < 2) continue
+      const clinic = sorted[0].clinic
+      const item = sorted[0].item
+      const id = JSON.stringify([clinic, item])
+      const last = sorted[sorted.length - 1]
+      const prev = sorted[sorted.length - 2]
+      if (prev.consumedStock > 0 && last.consumedStock >= prev.consumedStock * 1.5) {
+        const pct = Math.round((last.consumedStock / prev.consumedStock - 1) * 100)
+        signals.push({
+          id,
+          kind: 'mom-spike',
+          metricShort: `+${pct}% MoM`,
+          sortRank: pct,
+          message: `${clinic} · ${item}: monthly orders rose ${pct}% (${formatMonth(prev.month)} → ${formatMonth(last.month)}). Consider checking stock — clinics often order more when supply is tight.`,
+        })
+        continue
+      }
+      if (sorted.length >= 3) {
+        const priorRows = sorted.slice(0, -1)
+        const avg = priorRows.reduce((s, r) => s + r.consumedStock, 0) / priorRows.length
+        if (avg > 0 && last.consumedStock >= avg * 1.75) {
+          const ratio = last.consumedStock / avg
+          const sortRank = Math.round((ratio - 1) * 100)
+          const ratioLabel = ratio >= 10 ? ratio.toFixed(1) : ratio.toFixed(2)
+          signals.push({
+            id,
+            kind: 'vs-avg',
+            metricShort: `${ratioLabel}× vs avg`,
+            sortRank,
+            message: `${clinic} · ${item}: latest month (${last.consumedStock.toLocaleString()} units) is much higher than the earlier average in this period (~${Math.round(avg).toLocaleString()}). Possible stock pressure.`,
+          })
+          continue
+        }
+        const a = sorted[sorted.length - 3].consumedStock
+        const b = sorted[sorted.length - 2].consumedStock
+        const c = last.consumedStock
+        if (a > 0 && b >= a && c >= b * 1.15) {
+          const sortRank = 35 + Math.min(40, Math.round(((c / a - 1) * 12)))
+          signals.push({
+            id,
+            kind: 'trend',
+            metricShort: '3-mo uptrend',
+            sortRank,
+            message: `${clinic} · ${item}: orders climbed over the last three months in view — monitor for depletion risk.`,
+          })
+        }
+      }
+    }
+    const byId = new Map<string, StockPressureSignal>()
+    for (const s of signals) {
+      const prev = byId.get(s.id)
+      if (!prev || s.sortRank > prev.sortRank) byId.set(s.id, s)
+    }
+    return [...byId.values()].sort((a, b) => b.sortRank - a.sortRank).slice(0, 18)
+  }, [filteredConsumption, usingStakeholderSource])
 
   const nextMonthForecast = useMemo(() => {
-    const latestThree = [...filteredConsumption]
-      .sort((a, b) => (a.month < b.month ? 1 : -1))
-      .slice(0, 3)
-    if (!latestThree.length) return 0
-    const avg = latestThree.reduce((sum, row) => sum + row.consumedStock, 0) / latestThree.length
+    const months = [...new Set(filteredConsumption.map((r) => r.month))].sort()
+    const lastThreeMonths = months.slice(-3)
+    const rowsInWindow = filteredConsumption.filter((r) => lastThreeMonths.includes(r.month))
+    if (!rowsInWindow.length) return 0
+    const totalQty = rowsInWindow.reduce((sum, row) => sum + row.consumedStock, 0)
+    const avg = totalQty / lastThreeMonths.length
     return Math.round(avg * 1.05)
   }, [filteredConsumption])
 
   const recentConsumptionItems = useMemo(() => {
-    return [...consumptionData]
+    return [...effectiveConsumption]
       .sort((a, b) => (a.month < b.month ? 1 : -1))
       .slice(0, 5)
       .map((row) => row.item)
-  }, [])
+  }, [effectiveConsumption])
 
-  const lowStockSuggestions = useMemo(() => {
-    return inventory
-      .filter((item) => ['Low stock', 'Critical', 'Out of stock'].includes(getStockStatus(item)))
-      .map((item) => item.itemName)
-  }, [inventory])
-
-  const orderSuggestions = [...new Set([...lowStockSuggestions, ...recentConsumptionItems])].slice(0, 6)
+  const orderSuggestions = recentConsumptionItems.slice(0, 8)
 
   const orderSummary = useMemo(() => {
     const totalLines = orderLines.length
@@ -261,14 +351,41 @@ function App() {
       .flatMap((order) => order.items.map((item) => item.itemName)),
   )
 
+  const filteredOrdersTable = useMemo(() => {
+    const terms = orderSearchQuery
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+    if (!terms.length) return orders
+    return orders.filter((order) => {
+      const haystack = [
+        order.id,
+        order.clinicName,
+        order.status,
+        order.preferredDeliveryDate,
+        order.createdAt,
+        order.comments,
+        ...order.items.map((i) => `${i.itemName} ${i.quantity}`),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return terms.every((term) => haystack.includes(term))
+    })
+  }, [orders, orderSearchQuery])
+
   const addOrderLine = () => {
-    const itemData = inventory.find((item) => item.itemName === orderItem)
-    if (!itemData) return
-    setOrderLines((rows) => [
-      ...rows,
-      { itemName: itemData.itemName, quantity: orderQty, unitCost: itemData.unitCost },
-    ])
+    if (!orderItem.trim()) return
+    setOrderLines((rows) => [...rows, { itemName: orderItem, quantity: orderQty, unitCost: 0 }])
   }
+
+  const workbookReady = usingStakeholderSource && stakeholderRows.length > 0
+
+  useEffect(() => {
+    if (workbookReady && !deliveryDate) {
+      setDeliveryDate(new Date().toISOString().slice(0, 10))
+    }
+  }, [workbookReady, deliveryDate])
 
   const saveOrder = (status: OrderStatus) => {
     if (!orderLines.length) return
@@ -291,19 +408,16 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
-          <div className="brand-mark">KH</div>
-          <div>
-            <h1>Kaaro Health</h1>
-            <p>Clinic Operations</p>
-          </div>
+          <img
+            className="brand-logo"
+            src={baseRelativeUrl('kaaro-logo.png')}
+            alt="Kaaro — Good health for everyone, everywhere"
+            width={200}
+            height={48}
+            decoding="async"
+          />
         </div>
         <nav>
-          <button
-            className={`nav-item ${activePage === 'inventory' ? 'active' : ''}`}
-            onClick={() => setActivePage('inventory')}
-          >
-            Current Inventory
-          </button>
           <button
             className={`nav-item ${activePage === 'consumption' ? 'active' : ''}`}
             onClick={() => setActivePage('consumption')}
@@ -324,194 +438,155 @@ function App() {
           <button className="menu-button" onClick={() => setSidebarOpen((state) => !state)}>
             Menu
           </button>
+          <img
+            className="top-bar-logo"
+            src={baseRelativeUrl('kaaro-logo.png')}
+            alt=""
+            width={140}
+            height={34}
+            decoding="async"
+            aria-hidden
+          />
           <div>
             <h2>
-              {activePage === 'inventory' && 'Clinic Inventory Levels'}
-              {activePage === 'consumption' && 'Month-wise Consumption Track'}
+              {activePage === 'consumption' && 'Month-wise Order Quantities'}
               {activePage === 'orders' && 'Clinic Order Placing'}
             </h2>
             <p>Operations dashboard for data-driven clinic supply decisions</p>
           </div>
         </header>
 
-        {activePage === 'inventory' && (
-          <>
-            <section className="cards">
-              <article className="card">
-                <span>Total SKUs</span>
-                <strong>{inventoryKpis.totalSkus}</strong>
-              </article>
-              <article className="card alert-soft">
-                <span>Low-stock Items</span>
-                <strong>{inventoryKpis.lowStock}</strong>
-              </article>
-              <article className="card alert">
-                <span>Out-of-stock Items</span>
-                <strong>{inventoryKpis.outOfStock}</strong>
-              </article>
-              <article className="card">
-                <span>Inventory Value</span>
-                <strong>INR {inventoryKpis.inventoryValue.toLocaleString()}</strong>
-              </article>
-            </section>
-
-            <section className="dashboard-grid">
-              <article className="panel">
-                <div className="panel-head">
-                  <h3>Search and Filters</h3>
-                </div>
-                <div className="filters inline">
-                  <input
-                    value={inventorySearch}
-                    onChange={(event) => setInventorySearch(event.target.value)}
-                    placeholder="Search item, SKU, clinic"
-                  />
-                  <select value={selectedClinic} onChange={(event) => setSelectedClinic(event.target.value)}>
-                    {clinics.map((clinic) => (
-                      <option key={clinic}>{clinic}</option>
-                    ))}
-                  </select>
-                  <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)}>
-                    {categories.map((category) => (
-                      <option key={category}>{category}</option>
-                    ))}
-                  </select>
-                  <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
-                    {statusFilters.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
-                </div>
-              </article>
-              <article className="panel">
-                <div className="panel-head">
-                  <h3>Stock by Clinic</h3>
-                </div>
-                <div className="chart-wrap">
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={stockByClinic}>
-                      <CartesianGrid stroke="#e4eaf0" strokeDasharray="4 4" />
-                      <XAxis dataKey="clinic" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="quantity" fill="#0ea5a0" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </article>
-            </section>
-
-            <section className="panel table-panel">
-              <div className="panel-head">
-                <h3>Clinic-level Inventory Table</h3>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Item name</th>
-                      <th>SKU</th>
-                      <th>Category</th>
-                      <th>Clinic name</th>
-                      <th>Current qty</th>
-                      <th>Reorder level</th>
-                      <th>Unit</th>
-                      <th>Last updated</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredInventory.map((item) => {
-                      const status = getStockStatus(item)
-                      const badgeClass = status.toLowerCase().replace(/\s+/g, '-')
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            <button className="link-button" onClick={() => setDrilldownKey(item.itemName)}>
-                              {item.itemName}
-                            </button>
-                          </td>
-                          <td>{item.sku}</td>
-                          <td>{item.category}</td>
-                          <td>
-                            <button className="link-button" onClick={() => setDrilldownKey(item.clinicName)}>
-                              {item.clinicName}
-                            </button>
-                          </td>
-                          <td>{item.currentQuantity}</td>
-                          <td>{item.reorderLevel}</td>
-                          <td>{item.unit}</td>
-                          <td>{item.lastUpdated}</td>
-                          <td>
-                            <span className={`badge ${badgeClass}`}>{status}</span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-head">
-                <h3>Drill-down: {drilldownKey}</h3>
-              </div>
-              <div className="drilldown-grid">
-                <div>
-                  <h4>Recent Usage</h4>
-                  <ul>
-                    {(usageByKey[drilldownKey] ?? [`Usage details for ${drilldownKey} available via API`]).map(
-                      (line) => (
-                        <li key={line}>{line}</li>
-                      ),
-                    )}
-                  </ul>
-                </div>
-                <div>
-                  <h4>Recent Orders</h4>
-                  <ul>
-                    {(ordersByKey[drilldownKey] ?? [`Order details for ${drilldownKey} available via API`]).map(
-                      (line) => (
-                        <li key={line}>{line}</li>
-                      ),
-                    )}
-                  </ul>
-                </div>
-              </div>
-            </section>
-          </>
+        {stakeholderLoading && (
+          <section className="card alert-soft stakeholder-notice">Loading stakeholder Excel workbook…</section>
+        )}
+        {stakeholderError && (
+          <section className="card alert stakeholder-notice">
+            Could not load the workbook ({stakeholderError}). Consumption and orders stay empty until the file loads. For
+            local dev add <code>public/data/stakeholder-monthly-orders.xlsx</code>; for deploys include it in the build and
+            match <code>Vite BASE_URL</code> if the app is not served from the domain root.
+          </section>
+        )}
+        {usingStakeholderSource && !stakeholderLoading && (
+          <section className="card stakeholder-notice">
+            <strong>Workbook loaded</strong> — {stakeholderRows.length.toLocaleString()} line items from the Excel file.
+          </section>
         )}
 
         {activePage === 'consumption' && (
           <>
-            <section className="panel">
-              <div className="panel-head">
-                <h3>Consumption Filters</h3>
+            {!usingStakeholderSource && !stakeholderLoading && (
+              <section className="card alert-soft stakeholder-notice">
+                Monthly order charts and tables appear after the workbook loads successfully (
+                <code>public/data/stakeholder-monthly-orders.xlsx</code>).
+              </section>
+            )}
+            <section className="cards consumption-kpi-row">
+              <article className="card">
+                <span>Ordered qty (view)</span>
+                <strong>{consumptionViewStats.totalQty.toLocaleString()}</strong>
+              </article>
+              <article className="card">
+                <span>Clinics in view</span>
+                <strong>{consumptionViewStats.clinicCount}</strong>
+              </article>
+              <article className="card">
+                <span>Distinct items</span>
+                <strong>{consumptionViewStats.skuCount}</strong>
+              </article>
+              <article className="card">
+                <span>Raw rows</span>
+                <strong>{consumptionViewStats.rowCount.toLocaleString()}</strong>
+              </article>
+            </section>
+
+            <section className="panel consumption-controls-panel">
+              <div className="panel-head consumption-controls-head">
+                <div>
+                  <h3>Filters &amp; view</h3>
+                  <p className="consumption-controls-lede">
+                    Narrow by date and optional text. Summary tables compress the dataset; switch to{' '}
+                    <strong>All lines</strong> only when you need row-level export-style detail (paginated).
+                  </p>
+                </div>
               </div>
-              <div className="filters inline">
-                <select value={consumptionClinic} onChange={(event) => setConsumptionClinic(event.target.value)}>
-                  {clinics.map((clinic) => (
-                    <option key={clinic}>{clinic}</option>
+              <div className="consumption-toolbar">
+                <label className="consumption-field">
+                  <span>From</span>
+                  <input type="month" value={fromMonth} onChange={(event) => setFromMonth(event.target.value)} />
+                </label>
+                <label className="consumption-field">
+                  <span>To</span>
+                  <input type="month" value={toMonth} onChange={(event) => setToMonth(event.target.value)} />
+                </label>
+                <label className="consumption-field consumption-field-grow">
+                  <span>Clinic contains</span>
+                  <input
+                    value={consumptionFilterClinic}
+                    onChange={(event) => setConsumptionFilterClinic(event.target.value)}
+                    placeholder="e.g. Kaaro — optional"
+                    list="consumption-clinic-datalist"
+                    autoComplete="off"
+                  />
+                </label>
+                <datalist id="consumption-clinic-datalist">
+                  {clinicSuggestions.map((c) => (
+                    <option key={c} value={c} />
                   ))}
-                </select>
-                <select value={consumptionProduct} onChange={(event) => setConsumptionProduct(event.target.value)}>
-                  <option>All</option>
-                  {[...new Set(consumptionData.map((row) => row.item))].map((item) => (
-                    <option key={item}>{item}</option>
+                </datalist>
+                <label className="consumption-field consumption-field-grow">
+                  <span>Item contains</span>
+                  <input
+                    value={consumptionFilterItem}
+                    onChange={(event) => setConsumptionFilterItem(event.target.value)}
+                    placeholder="e.g. Paracetamol — optional"
+                    list="consumption-item-datalist"
+                    autoComplete="off"
+                  />
+                </label>
+                <datalist id="consumption-item-datalist">
+                  {itemSuggestions.map((item) => (
+                    <option key={item} value={item} />
                   ))}
-                </select>
-                <input type="month" value={fromMonth} onChange={(event) => setFromMonth(event.target.value)} />
-                <input type="month" value={toMonth} onChange={(event) => setToMonth(event.target.value)} />
+                </datalist>
+              </div>
+              <div className="consumption-view-toggle" role="tablist" aria-label="Consumption data shape">
+                <button
+                  type="button"
+                  className={consumptionDataMode === 'rollup-month' ? 'active' : ''}
+                  onClick={() => setConsumptionDataMode('rollup-month')}
+                >
+                  By month
+                </button>
+                <button
+                  type="button"
+                  className={consumptionDataMode === 'rollup-clinic' ? 'active' : ''}
+                  onClick={() => setConsumptionDataMode('rollup-clinic')}
+                >
+                  By clinic
+                </button>
+                <button
+                  type="button"
+                  className={consumptionDataMode === 'rollup-item' ? 'active' : ''}
+                  onClick={() => setConsumptionDataMode('rollup-item')}
+                >
+                  By item
+                </button>
+                <button
+                  type="button"
+                  className={consumptionDataMode === 'detail-lines' ? 'active' : ''}
+                  onClick={() => setConsumptionDataMode('detail-lines')}
+                >
+                  All lines
+                </button>
               </div>
             </section>
 
-            <section className="dashboard-grid">
+            <section className="dashboard-grid consumption-charts-grid">
               <article className="panel">
                 <div className="panel-head">
-                  <h3>Monthly Consumption Trend</h3>
+                  <h3>Monthly totals (trend)</h3>
                 </div>
-                <div className="chart-wrap">
+                <div className="chart-wrap chart-wrap-fixed">
                   <ResponsiveContainer width="100%" height={260}>
                     <LineChart data={monthlyTrend}>
                       <CartesianGrid stroke="#e4eaf0" strokeDasharray="4 4" />
@@ -519,71 +594,214 @@ function App() {
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="consumed" stroke="#0ea5a0" strokeWidth={2.5} />
+                      <Line
+                        type="monotone"
+                        dataKey="consumed"
+                        name="Ordered quantity"
+                        stroke="#ed7d31"
+                        strokeWidth={2.5}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </article>
               <article className="panel">
                 <div className="panel-head">
-                  <h3>Clinic Comparison</h3>
+                  <h3>Top clinics by volume</h3>
+                  <p className="panel-sub">Top 12 in the current filter — keeps the chart readable.</p>
                 </div>
-                <div className="chart-wrap">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={clinicComparison}>
-                      <CartesianGrid stroke="#e4eaf0" strokeDasharray="4 4" />
-                      <XAxis dataKey="clinic" />
-                      <YAxis />
+                <div className="chart-wrap chart-wrap-bar" style={{ height: clinicBarChartHeight }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      layout="vertical"
+                      data={clinicComparisonTop}
+                      margin={{ top: 8, right: 20, left: 4, bottom: 8 }}
+                    >
+                      <CartesianGrid stroke="#e4eaf0" strokeDasharray="4 4" horizontal={false} />
+                      <XAxis type="number" />
+                      <YAxis type="category" dataKey="clinic" width={132} tick={{ fontSize: 11 }} interval={0} />
                       <Tooltip />
-                      <Bar dataKey="consumed" fill="#2563eb" />
+                      <Bar dataKey="consumed" name="Ordered quantity" fill="#111111" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </article>
             </section>
 
-            <section className="panel table-panel">
+            <section className="panel table-panel consumption-table-panel">
               <div className="panel-head">
-                <h3>Monthly Summary Table</h3>
+                <h3>
+                  {consumptionDataMode === 'rollup-month' && 'Summary · by month'}
+                  {consumptionDataMode === 'rollup-clinic' && 'Summary · by clinic'}
+                  {consumptionDataMode === 'rollup-item' && 'Summary · by item'}
+                  {consumptionDataMode === 'detail-lines' && 'Row-level order lines'}
+                </h3>
+                <p className="panel-sub">
+                  {consumptionDataMode !== 'detail-lines'
+                    ? 'Aggregated from filtered rows below the charts.'
+                    : `Showing ${paginatedDetailLines.length} of ${filteredConsumption.length.toLocaleString()} rows.`}
+                </p>
               </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Month</th>
-                      <th>Clinic</th>
-                      <th>Item</th>
-                      <th>Opening</th>
-                      <th>Received</th>
-                      <th>Consumed</th>
-                      <th>Closing</th>
-                      <th>Variance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredConsumption.map((row) => (
-                      <tr key={`${row.month}-${row.clinic}-${row.item}`}>
-                        <td>{formatMonth(row.month)}</td>
-                        <td>{row.clinic}</td>
-                        <td>{row.item}</td>
-                        <td>{row.openingStock}</td>
-                        <td>{row.receivedStock}</td>
-                        <td>{row.consumedStock}</td>
-                        <td>{row.closingStock}</td>
-                        <td>{row.variance}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {filteredConsumption.length === 0 ? (
+                <p className="consumption-empty">
+                  {!usingStakeholderSource && !stakeholderLoading
+                    ? 'No workbook data loaded yet.'
+                    : 'Nothing matches these filters. Widen the date range or clear text filters.'}
+                </p>
+              ) : (
+                <>
+                  <div className="table-wrap consumption-table-scroll">
+                    <table>
+                      <thead>
+                        {consumptionDataMode === 'rollup-month' && (
+                          <tr>
+                            <th>Month</th>
+                            <th className="cell-num">Ordered qty</th>
+                            <th className="cell-num">Clinics</th>
+                            <th className="cell-num">Aggregated lines</th>
+                          </tr>
+                        )}
+                        {consumptionDataMode === 'rollup-clinic' && (
+                          <tr>
+                            <th>Clinic</th>
+                            <th className="cell-num">Ordered qty</th>
+                          </tr>
+                        )}
+                        {consumptionDataMode === 'rollup-item' && (
+                          <tr>
+                            <th>Item</th>
+                            <th>Unit</th>
+                            <th className="cell-num">Ordered qty</th>
+                          </tr>
+                        )}
+                        {consumptionDataMode === 'detail-lines' && (
+                          <tr>
+                            <th>Month</th>
+                            <th>Clinic</th>
+                            <th>Item</th>
+                            <th>Unit</th>
+                            <th className="cell-num">Ordered qty</th>
+                          </tr>
+                        )}
+                      </thead>
+                      <tbody>
+                        {consumptionDataMode === 'rollup-month' &&
+                          rollupByMonth.map((row) => (
+                            <tr key={row.monthKey}>
+                              <td>{row.monthLabel}</td>
+                              <td className="cell-num">{row.totalQty.toLocaleString()}</td>
+                              <td className="cell-num">{row.clinicCount}</td>
+                              <td className="cell-num">{row.lineRows.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        {consumptionDataMode === 'rollup-clinic' &&
+                          rollupByClinic.map((row) => (
+                            <tr key={row.clinic}>
+                              <td>{row.clinic}</td>
+                              <td className="cell-num">{row.totalQty.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        {consumptionDataMode === 'rollup-item' &&
+                          rollupByItem.map((row) => (
+                            <tr key={row.item}>
+                              <td>{row.item}</td>
+                              <td>{row.unit ?? '—'}</td>
+                              <td className="cell-num">{row.totalQty.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        {consumptionDataMode === 'detail-lines' &&
+                          paginatedDetailLines.map((row) => (
+                            <tr key={`${row.month}-${row.clinic}-${row.item}`}>
+                              <td>{formatMonth(row.month)}</td>
+                              <td>{row.clinic}</td>
+                              <td>{row.item}</td>
+                              <td>{row.unit ?? '—'}</td>
+                              <td className="cell-num">{row.consumedStock}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {consumptionDataMode === 'detail-lines' && consumptionDetailPageCount > 1 && (
+                    <div className="consumption-pagination">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={consumptionPageIndex <= 0}
+                        onClick={() => setConsumptionPageIndex((p) => Math.max(0, p - 1))}
+                      >
+                        Previous
+                      </button>
+                      <span className="consumption-page-meta">
+                        Page {consumptionPageIndex + 1} of {consumptionDetailPageCount}
+                      </span>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={consumptionPageIndex >= consumptionDetailPageCount - 1}
+                        onClick={() =>
+                          setConsumptionPageIndex((p) => Math.min(consumptionDetailPageCount - 1, p + 1))
+                        }
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </section>
 
-            <section className="dashboard-grid">
-              <article className="panel">
-                <div className="panel-head">
-                  <h3>Alerts</h3>
+            <section className="panel consumption-stock-panel">
+              <div className="panel-head">
+                <h3>Low-stock risk signals</h3>
+                <p className="panel-sub">
+                  Based on monthly <strong>order quantities</strong> in your filters — not live shelf counts. Sudden or
+                  sustained increases often mean a clinic is ordering to catch up after heavy use or low availability.
+                </p>
+              </div>
+              {!usingStakeholderSource ? (
+                <ul className="alert-list stock-pressure-list">
+                  <li>Load the workbook to compute these signals.</li>
+                </ul>
+              ) : (
+                <div className="stock-pressure-list-wrap">
+                  <ul className="alert-list stock-pressure-list">
+                    {stockPressureSignals.length ? (
+                      stockPressureSignals.map((s) => (
+                        <li key={s.id}>
+                          <span
+                            className={`stock-signal-pill stock-signal-pill--${s.kind}`}
+                            title={
+                              s.kind === 'mom-spike'
+                                ? 'Month-over-month jump in ordered quantity'
+                                : s.kind === 'vs-avg'
+                                  ? 'Latest month vs average of earlier months in view'
+                                  : 'Rising orders over the last three months in view'
+                            }
+                          >
+                            {s.metricShort}
+                          </span>
+                          <span className="stock-warning-icon" aria-hidden>
+                            !
+                          </span>
+                          <span className="stock-pressure-copy">{s.message}</span>
+                        </li>
+                      ))
+                    ) : (
+                      <li>No elevated stock-pressure patterns in the current filter window.</li>
+                    )}
+                  </ul>
                 </div>
-                <ul className="alert-list">
+              )}
+            </section>
+
+            <section className="dashboard-grid consumption-insights-grid">
+              <article className="panel consumption-insights-panel">
+                <div className="panel-head">
+                  <h3>Highlights</h3>
+                  <p className="panel-sub">Derived from your current filters.</p>
+                </div>
+                <ul className="alert-list consumption-alert-list">
                   {consumptionAlerts.length ? (
                     consumptionAlerts.map((alert) => <li key={alert}>{alert}</li>)
                   ) : (
@@ -591,14 +809,16 @@ function App() {
                   )}
                 </ul>
               </article>
-              <article className="panel">
+              <article className="panel consumption-insights-panel">
                 <div className="panel-head">
-                  <h3>Forecast Widget</h3>
+                  <h3>Forecast</h3>
+                  <p className="panel-sub">Ballpark projection from recent activity in view.</p>
                 </div>
-                <div className="forecast-box">
-                  <p>Estimated next month demand</p>
-                  <strong>{nextMonthForecast} units</strong>
-                  <small>Based on recent 3-month average consumption.</small>
+                <div className="forecast-box forecast-box-compact">
+                  <strong>{nextMonthForecast.toLocaleString()} units</strong>
+                  <small>
+                    Based on ordered quantities from the last three calendar months in your current filters (workbook data).
+                  </small>
                 </div>
               </article>
             </section>
@@ -607,21 +827,46 @@ function App() {
 
         {activePage === 'orders' && (
           <>
+            {!workbookReady && !stakeholderLoading && (
+              <section className="card alert-soft stakeholder-notice">
+                Load the workbook to populate clinics and items. The form stays disabled until data is available.
+              </section>
+            )}
             <section className="dashboard-grid orders-layout">
               <article className="panel">
                 <div className="panel-head">
                   <h3>Clinic Order Form</h3>
                 </div>
                 <div className="filters">
-                  <select value={orderClinic} onChange={(event) => setOrderClinic(event.target.value)}>
-                    {clinics.filter((c) => c !== 'All clinics').map((clinic) => (
-                      <option key={clinic}>{clinic}</option>
-                    ))}
+                  <select
+                    value={orderClinic}
+                    onChange={(event) => setOrderClinic(event.target.value)}
+                    disabled={!workbookReady}
+                  >
+                    {!orderClinicOptions.length ? (
+                      <option value="">—</option>
+                    ) : (
+                      orderClinicOptions.map((clinic) => (
+                        <option key={clinic} value={clinic}>
+                          {clinic}
+                        </option>
+                      ))
+                    )}
                   </select>
-                  <select value={orderItem} onChange={(event) => setOrderItem(event.target.value)}>
-                    {[...new Set(inventory.map((item) => item.itemName))].map((item) => (
-                      <option key={item}>{item}</option>
-                    ))}
+                  <select
+                    value={orderItem}
+                    onChange={(event) => setOrderItem(event.target.value)}
+                    disabled={!workbookReady}
+                  >
+                    {!productNamesForOrders.length ? (
+                      <option value="">—</option>
+                    ) : (
+                      productNamesForOrders.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))
+                    )}
                   </select>
                   <input
                     type="number"
@@ -629,31 +874,45 @@ function App() {
                     value={orderQty}
                     onChange={(event) => setOrderQty(Number(event.target.value))}
                     placeholder="Quantity"
+                    disabled={!workbookReady}
                   />
                   <input
                     type="date"
                     value={deliveryDate}
                     onChange={(event) => setDeliveryDate(event.target.value)}
+                    disabled={!workbookReady}
                   />
                   <textarea
                     value={comments}
                     onChange={(event) => setComments(event.target.value)}
                     placeholder="Comments"
                     rows={3}
+                    disabled={!workbookReady}
                   />
-                  <button className="primary-button" onClick={addOrderLine}>
+                  <button type="button" className="primary-button" onClick={addOrderLine} disabled={!workbookReady}>
                     Add Item
                   </button>
                 </div>
 
                 <div className="inline-actions">
-                  <button className="secondary-button" onClick={() => saveOrder('Draft')}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={!workbookReady}
+                    onClick={() => saveOrder('Draft')}
+                  >
                     Save Draft
                   </button>
-                  <button className="primary-button" onClick={() => saveOrder('Submitted')}>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={!workbookReady}
+                    onClick={() => saveOrder('Submitted')}
+                  >
                     Submit Order
                   </button>
                   <button
+                    type="button"
                     className="danger-button"
                     onClick={() => {
                       setOrderLines([])
@@ -703,11 +962,52 @@ function App() {
               </article>
             </section>
 
-            <section className="panel table-panel">
-              <div className="panel-head">
-                <h3>Orders Table</h3>
+            <section className="panel table-panel orders-table-panel">
+              <div className="panel-head orders-table-panel-head">
+                <div>
+                  <h3>Orders Table</h3>
+                  <p className="panel-sub">Search then click Search or press Enter. Table scrolls when there are many rows.</p>
+                </div>
               </div>
-              <div className="table-wrap">
+              <div className="orders-table-toolbar">
+                <label className="orders-search-field">
+                  <span className="orders-search-label">Find orders</span>
+                  <input
+                    type="search"
+                    value={orderSearchInput}
+                    onChange={(event) => setOrderSearchInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        setOrderSearchQuery(orderSearchInput.trim())
+                      }
+                    }}
+                    placeholder="Order ID, clinic, item, status, date…"
+                    autoComplete="off"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="primary-button orders-search-submit"
+                  onClick={() => setOrderSearchQuery(orderSearchInput.trim())}
+                >
+                  Search
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setOrderSearchInput('')
+                    setOrderSearchQuery('')
+                  }}
+                >
+                  Clear
+                </button>
+                <span className="orders-search-meta">
+                  Showing {filteredOrdersTable.length.toLocaleString()} of {orders.length.toLocaleString()}
+                </span>
+              </div>
+              <div className="table-wrap orders-table-scroll">
                 <table>
                   <thead>
                     <tr>
@@ -720,18 +1020,28 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id}>
-                        <td>{order.id}</td>
-                        <td>{order.clinicName}</td>
-                        <td>{order.items.map((item) => `${item.itemName} (${item.quantity})`).join(', ')}</td>
-                        <td>{order.preferredDeliveryDate}</td>
-                        <td>
-                          <span className={`badge ${order.status.toLowerCase()}`}>{order.status}</span>
+                    {filteredOrdersTable.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="orders-table-empty-cell">
+                          {orders.length === 0
+                            ? 'No orders yet.'
+                            : 'No orders match your search. Clear filters or try different keywords.'}
                         </td>
-                        <td>{order.createdAt}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredOrdersTable.map((order) => (
+                        <tr key={order.id}>
+                          <td>{order.id}</td>
+                          <td>{order.clinicName}</td>
+                          <td>{order.items.map((item) => `${item.itemName} (${item.quantity})`).join(', ')}</td>
+                          <td>{order.preferredDeliveryDate}</td>
+                          <td>
+                            <span className={`badge ${order.status.toLowerCase()}`}>{order.status}</span>
+                          </td>
+                          <td>{order.createdAt}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
