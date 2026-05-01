@@ -152,7 +152,6 @@ function App() {
       totalQty: qty,
       clinicCount: clinics.size,
       skuCount: items.size,
-      rowCount: filteredConsumption.length,
     }
   }, [filteredConsumption])
 
@@ -570,10 +569,6 @@ function App() {
               <article className="card">
                 <span>Distinct items</span>
                 <strong>{consumptionViewStats.skuCount}</strong>
-              </article>
-              <article className="card">
-                <span>Raw rows</span>
-                <strong>{consumptionViewStats.rowCount.toLocaleString()}</strong>
               </article>
             </section>
 
