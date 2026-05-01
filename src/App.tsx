@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -15,7 +15,9 @@ import {
 import { useStakeholderExcel } from './hooks/useStakeholderExcel'
 import type { ClinicOrder, ConsumptionRecord, OrderStatus } from './types/dashboard'
 import { aggregateStakeholderToConsumption, stakeholderRowsToClinicOrders } from './utils/stakeholderTransforms'
+import { appendAuditEntry, clearAuditEntries, loadAuditEntries, type AuditEntry } from './utils/auditTrail'
 import { baseRelativeUrl } from './utils/assetUrl'
+import { DEFAULT_QA_ITEMS, loadQaChecked, saveQaChecked } from './utils/weeklyQa'
 
 const formatMonth = (value: string) => {
   const [year, month] = value.split('-')
@@ -39,6 +41,8 @@ type StockPressureSignal = {
 function App() {
   const [activePage, setActivePage] = useState<'consumption' | 'orders'>('consumption')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [auditEntries, setAuditEntries] = useState<AuditEntry[]>(() => loadAuditEntries())
+  const [qaChecked, setQaChecked] = useState<Record<string, boolean>>(() => loadQaChecked())
 
   const [consumptionFilterClinic, setConsumptionFilterClinic] = useState('')
   const [consumptionFilterItem, setConsumptionFilterItem] = useState('')
@@ -319,15 +323,55 @@ function App() {
     return [...byId.values()].sort((a, b) => b.sortRank - a.sortRank).slice(0, 18)
   }, [filteredConsumption, usingStakeholderSource])
 
-  const nextMonthForecast = useMemo(() => {
+  /** Last up to 3 months in filter: mean monthly ordered qty, sample stdev → rough band, then +5% uplift on the mean. */
+  const forecastDetail = useMemo(() => {
     const months = [...new Set(filteredConsumption.map((r) => r.month))].sort()
-    const lastThreeMonths = months.slice(-3)
-    const rowsInWindow = filteredConsumption.filter((r) => lastThreeMonths.includes(r.month))
-    if (!rowsInWindow.length) return 0
-    const totalQty = rowsInWindow.reduce((sum, row) => sum + row.consumedStock, 0)
-    const avg = totalQty / lastThreeMonths.length
-    return Math.round(avg * 1.05)
+    const lastThree = months.slice(-3)
+    if (!lastThree.length) return null
+    const monthTotals = lastThree.map((m) =>
+      filteredConsumption.filter((r) => r.month === m).reduce((s, r) => s + r.consumedStock, 0),
+    )
+    const n = monthTotals.length
+    const sum = monthTotals.reduce((a, b) => a + b, 0)
+    const mean = sum / n
+    const variance =
+      n > 1 ? monthTotals.reduce((acc, x) => acc + (x - mean) ** 2, 0) / n : 0
+    const stdev = Math.sqrt(variance)
+    const uplift = 1.05
+    const projected = Math.round(mean * uplift)
+    const bandLow = Math.max(0, Math.round((mean - stdev) * uplift))
+    const bandHigh = Math.round((mean + stdev) * uplift)
+    return {
+      monthsUsedKeys: lastThree,
+      monthsUsedLabels: lastThree.map(formatMonth),
+      monthTotals,
+      meanMonthlyOrdered: mean,
+      stdevMonthlyOrdered: stdev,
+      uplift,
+      projectedNextMonth: projected,
+      bandLow,
+      bandHigh,
+    }
   }, [filteredConsumption])
+
+  const nextMonthForecast = forecastDetail?.projectedNextMonth ?? 0
+
+  const logAudit = useCallback((action: string, detail: string) => {
+    setAuditEntries(appendAuditEntry(action, detail))
+  }, [])
+
+  const clearAudit = useCallback(() => {
+    clearAuditEntries()
+    setAuditEntries([])
+  }, [])
+
+  const toggleQa = useCallback((id: string) => {
+    setQaChecked((prev) => {
+      const next = { ...prev, [id]: !prev[id] }
+      saveQaChecked(next)
+      return next
+    })
+  }, [])
 
   const recentConsumptionItems = useMemo(() => {
     return [...effectiveConsumption]
@@ -399,9 +443,19 @@ function App() {
       createdAt: new Date().toISOString().slice(0, 10),
     }
     setOrders((old) => [newOrder, ...old])
+    const qty = newOrder.items.reduce((s, i) => s + i.quantity, 0)
+    logAudit(
+      status === 'Draft' ? 'order_draft_saved' : 'order_submitted',
+      `${newOrder.id} · ${newOrder.clinicName} · ${status} · ${newOrder.items.length} line(s) · qty ${qty} · delivery ${newOrder.preferredDeliveryDate}`,
+    )
     setComments('')
     setOrderLines([])
     setOrderQty(10)
+  }
+
+  const updateOrderStatus = (id: string, status: OrderStatus) => {
+    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, status } : o)))
+    logAudit('order_status_changed', `${id} → ${status}`)
   }
 
   return (
@@ -815,15 +869,55 @@ function App() {
               <article className="panel consumption-insights-panel">
                 <div className="panel-head">
                   <h3>Forecast</h3>
-                  <p className="panel-sub">Ballpark projection from recent activity in view.</p>
+                  <p className="panel-sub">
+                    Moving average on recent calendar months in your filter, variability band from month-to-month totals,
+                    then +5% buffer — order quantities only.
+                  </p>
                 </div>
                 <div className="forecast-box forecast-box-compact">
                   <strong>{nextMonthForecast.toLocaleString()} units</strong>
-                  <small>
-                    Based on ordered quantities from the last three calendar months in your current filters (workbook data).
-                  </small>
+                  {forecastDetail ? (
+                    <small className="forecast-method">
+                      Months: {forecastDetail.monthsUsedLabels.join(', ')} · Monthly totals:{' '}
+                      {forecastDetail.monthTotals.map((t) => t.toLocaleString()).join(' / ')} · Mean{' '}
+                      {Math.round(forecastDetail.meanMonthlyOrdered).toLocaleString()}
+                      {forecastDetail.stdevMonthlyOrdered > 0 && (
+                        <>
+                          {' '}
+                          (σ ≈ {Math.round(forecastDetail.stdevMonthlyOrdered).toLocaleString()})
+                        </>
+                      )}
+                      . Rough range next month: {forecastDetail.bandLow.toLocaleString()}–
+                      {forecastDetail.bandHigh.toLocaleString()} units (mean ± σ, then × {forecastDetail.uplift}).
+                    </small>
+                  ) : (
+                    <small>Widen filters or load data to compute a forecast.</small>
+                  )}
                 </div>
               </article>
+            </section>
+
+            <section className="panel weekly-qa-panel">
+              <div className="panel-head">
+                <h3>Weekly quality review</h3>
+                <p className="panel-sub">
+                  Lightweight checklist for recurring reviews. Checked state is saved in this browser only.
+                </p>
+              </div>
+              <ul className="weekly-qa-list">
+                {DEFAULT_QA_ITEMS.map((item) => (
+                  <li key={item.id}>
+                    <label className="weekly-qa-label">
+                      <input
+                        type="checkbox"
+                        checked={!!qaChecked[item.id]}
+                        onChange={() => toggleQa(item.id)}
+                      />
+                      {item.label}
+                    </label>
+                  </li>
+                ))}
+              </ul>
             </section>
           </>
         )}
@@ -1020,12 +1114,13 @@ function App() {
                       <th>Preferred delivery</th>
                       <th>Status</th>
                       <th>Created</th>
+                      <th className="orders-actions-col">Update</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredOrdersTable.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="orders-table-empty-cell">
+                        <td colSpan={7} className="orders-table-empty-cell">
                           {orders.length === 0
                             ? 'No orders yet.'
                             : 'No orders match your search. Clear filters or try different keywords.'}
@@ -1042,6 +1137,20 @@ function App() {
                             <span className={`badge ${order.status.toLowerCase()}`}>{order.status}</span>
                           </td>
                           <td>{order.createdAt}</td>
+                          <td className="orders-actions-col">
+                            <select
+                              className="status-select"
+                              aria-label={`Update status for ${order.id}`}
+                              value={order.status}
+                              onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
+                            >
+                              {(['Draft', 'Submitted', 'Approved', 'Fulfilled', 'Cancelled'] as OrderStatus[]).map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1051,6 +1160,53 @@ function App() {
             </section>
           </>
         )}
+
+        <section className="panel audit-panel">
+          <div className="panel-head audit-panel-head">
+            <div>
+              <h3>Audit trail</h3>
+              <p className="panel-sub">
+                Order saves, status changes, and other actions you take here (browser-local only — not server audit).
+              </p>
+            </div>
+            <button type="button" className="secondary-button" onClick={clearAudit}>
+              Clear log
+            </button>
+          </div>
+          <div className="table-wrap audit-table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Action</th>
+                  <th>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="audit-empty">
+                      No entries yet. Saving or submitting an order, or changing order status, will appear here.
+                    </td>
+                  </tr>
+                ) : (
+                  [...auditEntries]
+                    .slice()
+                    .reverse()
+                    .map((entry) => (
+                      <tr key={entry.id}>
+                        <td className="audit-ts">{new Date(entry.ts).toLocaleString()}</td>
+                        <td>
+                          <code className="audit-action">{entry.action}</code>
+                        </td>
+                        <td className="audit-detail">{entry.detail}</td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </main>
     </div>
   )
