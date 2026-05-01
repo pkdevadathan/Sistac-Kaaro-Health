@@ -262,15 +262,42 @@ th {
 }
 
 .badge.in-stock,
-.badge.fulfilled {
+.badge.fulfilled,
+.badge.delivered {
   background: #dcfce7;
   color: #166534;
 }
 
 .badge.low-stock,
-.badge.submitted {
+.badge.submitted,
+.badge.requested {
   background: #fef3c7;
   color: #92400e;
+}
+
+.badge.picked {
+  background: #e0e7ff;
+  color: #312e81;
+}
+
+.badge.dispatched {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.badge.confirmed {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.badge.paid {
+  background: #bbf7d0;
+  color: #14532d;
+}
+
+.badge.pending-payment {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .badge.critical,
@@ -722,6 +749,49 @@ th {
 
 .orders-table-panel-head {
   margin-bottom: 0.65rem;
+}
+
+.order-stage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+  padding: 0.35rem 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.order-stage-chip {
+  flex: 0 0 auto;
+  border: 1px solid #cfd9e1;
+  background: #fff;
+  border-radius: 999px;
+  padding: 0.32rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  line-height: 1.25;
+}
+
+.order-stage-chip:hover {
+  border-color: var(--brand-orange);
+  color: #111;
+}
+
+.order-stage-chip-active {
+  background: var(--brand-orange);
+  border-color: var(--brand-orange);
+  color: #fff;
+}
+
+.order-stage-chip-zero:not(.order-stage-chip-active) {
+  opacity: 0.55;
+}
+
+.order-stage-count {
+  font-weight: 500;
+  opacity: 0.92;
 }
 
 .orders-table-toolbar {

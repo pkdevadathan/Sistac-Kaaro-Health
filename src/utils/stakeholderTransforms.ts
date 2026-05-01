@@ -51,7 +51,8 @@ export function stakeholderRowsToClinicOrders(rows: StakeholderOrderRow[]): Clin
   for (const [id, lines] of byOrder.entries()) {
     const sorted = [...lines].sort((a, b) => a.item.localeCompare(b.item))
     const head = sorted[0]
-    const status: OrderStatus = 'Fulfilled'
+    /** Historical imports: treat as already received at clinic (adjust via table if needed). */
+    const status: OrderStatus = 'Delivered'
     orders.push({
       id,
       clinicName: head.clinicName,

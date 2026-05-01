@@ -13,7 +13,15 @@ import {
 } from 'recharts'
 
 import { useStakeholderExcel } from './hooks/useStakeholderExcel'
-import type { ClinicOrder, ConsumptionRecord, OrderStatus } from './types/dashboard'
+import {
+  formatOrderStatusLabel,
+  ORDER_PIPELINE_ACTIVE_STATUSES,
+  ORDER_STATUS_SELECT_OPTIONS,
+  orderStatusBadgeClass,
+  type ClinicOrder,
+  type ConsumptionRecord,
+  type OrderStatus,
+} from './types/dashboard'
 import { aggregateStakeholderToConsumption, stakeholderRowsToClinicOrders } from './utils/stakeholderTransforms'
 import { appendAuditEntry, clearAuditEntries, loadAuditEntries, type AuditEntry } from './utils/auditTrail'
 import { baseRelativeUrl } from './utils/assetUrl'
@@ -62,6 +70,8 @@ function App() {
   const [orders, setOrders] = useState<ClinicOrder[]>([])
   const [orderSearchInput, setOrderSearchInput] = useState('')
   const [orderSearchQuery, setOrderSearchQuery] = useState('')
+  type OrderStageFilter = OrderStatus | 'all'
+  const [orderStageFilter, setOrderStageFilter] = useState<OrderStageFilter>('all')
 
   const { rows: stakeholderRows, loading: stakeholderLoading, error: stakeholderError, hasStakeholderData } =
     useStakeholderExcel()
@@ -385,17 +395,16 @@ function App() {
   const orderSummary = useMemo(() => {
     const totalLines = orderLines.length
     const totalQuantity = orderLines.reduce((sum, row) => sum + row.quantity, 0)
-    const estimatedCost = orderLines.reduce((sum, row) => sum + row.quantity * row.unitCost, 0)
-    return { totalLines, totalQuantity, estimatedCost }
+    return { totalLines, totalQuantity }
   }, [orderLines])
 
   const pendingOrderItems = new Set(
     orders
-      .filter((order) => ['Submitted', 'Approved'].includes(order.status))
+      .filter((order) => ORDER_PIPELINE_ACTIVE_STATUSES.includes(order.status))
       .flatMap((order) => order.items.map((item) => item.itemName)),
   )
 
-  const filteredOrdersTable = useMemo(() => {
+  const ordersMatchingSearch = useMemo(() => {
     const terms = orderSearchQuery
       .trim()
       .toLowerCase()
@@ -417,6 +426,20 @@ function App() {
       return terms.every((term) => haystack.includes(term))
     })
   }, [orders, orderSearchQuery])
+
+  const orderStatusCounts = useMemo(() => {
+    const counts: Partial<Record<OrderStatus, number>> = {}
+    for (const s of ORDER_STATUS_SELECT_OPTIONS) counts[s] = 0
+    for (const o of ordersMatchingSearch) {
+      counts[o.status] = (counts[o.status] ?? 0) + 1
+    }
+    return counts as Record<OrderStatus, number>
+  }, [ordersMatchingSearch])
+
+  const filteredOrdersTable = useMemo(() => {
+    if (orderStageFilter === 'all') return ordersMatchingSearch
+    return ordersMatchingSearch.filter((o) => o.status === orderStageFilter)
+  }, [ordersMatchingSearch, orderStageFilter])
 
   const addOrderLine = () => {
     if (!orderItem.trim()) return
@@ -445,7 +468,7 @@ function App() {
     setOrders((old) => [newOrder, ...old])
     const qty = newOrder.items.reduce((s, i) => s + i.quantity, 0)
     logAudit(
-      status === 'Draft' ? 'order_draft_saved' : 'order_submitted',
+      status === 'Draft' ? 'order_draft_saved' : 'order_requested',
       `${newOrder.id} · ${newOrder.clinicName} · ${status} · ${newOrder.items.length} line(s) · qty ${qty} · delivery ${newOrder.preferredDeliveryDate}`,
     )
     setComments('')
@@ -509,7 +532,11 @@ function App() {
               {activePage === 'consumption' && 'Month-wise Order Quantities'}
               {activePage === 'orders' && 'Clinic Order Placing'}
             </h2>
-            <p>Operations dashboard for data-driven clinic supply decisions</p>
+            <p>
+              {activePage === 'orders'
+                ? 'Clinic requests move through approval, dispatch, delivery, confirmation, and payment stages (tracked below).'
+                : 'Operations dashboard for data-driven clinic supply decisions'}
+            </p>
           </div>
         </header>
 
@@ -523,12 +550,6 @@ function App() {
             match <code>Vite BASE_URL</code> if the app is not served from the domain root.
           </section>
         )}
-        {usingStakeholderSource && !stakeholderLoading && (
-          <section className="card stakeholder-notice">
-            <strong>Workbook loaded</strong> — {stakeholderRows.length.toLocaleString()} line items from the Excel file.
-          </section>
-        )}
-
         {activePage === 'consumption' && (
           <>
             {!usingStakeholderSource && !stakeholderLoading && (
@@ -1004,9 +1025,9 @@ function App() {
                     type="button"
                     className="primary-button"
                     disabled={!workbookReady}
-                    onClick={() => saveOrder('Submitted')}
+                    onClick={() => saveOrder('Requested')}
                   >
-                    Submit Order
+                    Submit clinic request
                   </button>
                   <button
                     type="button"
@@ -1046,7 +1067,6 @@ function App() {
                 <div className="summary-box">
                   <p>Requested lines: {orderSummary.totalLines}</p>
                   <p>Total quantity: {orderSummary.totalQuantity}</p>
-                  <p>Estimated cost: INR {orderSummary.estimatedCost.toLocaleString()}</p>
                   <p>Expected delivery: {deliveryDate || 'TBD'}</p>
                 </div>
                 <ul className="summary-lines">
@@ -1063,7 +1083,11 @@ function App() {
               <div className="panel-head orders-table-panel-head">
                 <div>
                   <h3>Orders Table</h3>
-                  <p className="panel-sub">Search then click Search or press Enter. Table scrolls when there are many rows.</p>
+                  <p className="panel-sub">
+                    Workflow: Requested → Approved → Picked → Dispatched → Delivered → Confirmed → Paid / Pending
+                    payment. Search, then press Enter or Search. Imported workbook lines start as Delivered for you to
+                    adjust.
+                  </p>
                 </div>
               </div>
               <div className="orders-table-toolbar">
@@ -1096,13 +1120,46 @@ function App() {
                   onClick={() => {
                     setOrderSearchInput('')
                     setOrderSearchQuery('')
+                    setOrderStageFilter('all')
                   }}
                 >
                   Clear
                 </button>
                 <span className="orders-search-meta">
-                  Showing {filteredOrdersTable.length.toLocaleString()} of {orders.length.toLocaleString()}
+                  Showing {filteredOrdersTable.length.toLocaleString()} of {ordersMatchingSearch.length.toLocaleString()}{' '}
+                  after search
+                  {orderStageFilter !== 'all' ? (
+                    <>
+                      {' '}
+                      · stage: <strong>{formatOrderStatusLabel(orderStageFilter)}</strong>
+                    </>
+                  ) : null}{' '}
+                  · {orders.length.toLocaleString()} total in app
                 </span>
+              </div>
+              <div className="order-stage-chips" role="tablist" aria-label="Filter orders by workflow stage">
+                <button
+                  type="button"
+                  className={`order-stage-chip${orderStageFilter === 'all' ? ' order-stage-chip-active' : ''}`}
+                  onClick={() => setOrderStageFilter('all')}
+                >
+                  All
+                  <span className="order-stage-count">({ordersMatchingSearch.length})</span>
+                </button>
+                {ORDER_STATUS_SELECT_OPTIONS.map((st) => {
+                  const c = orderStatusCounts[st] ?? 0
+                  return (
+                    <button
+                      type="button"
+                      key={st}
+                      className={`order-stage-chip${orderStageFilter === st ? ' order-stage-chip-active' : ''}${c === 0 ? ' order-stage-chip-zero' : ''}`}
+                      onClick={() => setOrderStageFilter(st)}
+                    >
+                      {formatOrderStatusLabel(st)}
+                      <span className="order-stage-count">({c})</span>
+                    </button>
+                  )
+                })}
               </div>
               <div className="table-wrap orders-table-scroll">
                 <table>
@@ -1123,7 +1180,9 @@ function App() {
                         <td colSpan={7} className="orders-table-empty-cell">
                           {orders.length === 0
                             ? 'No orders yet.'
-                            : 'No orders match your search. Clear filters or try different keywords.'}
+                            : ordersMatchingSearch.length === 0
+                              ? 'No orders match your search. Clear filters or try different keywords.'
+                              : 'No orders in this stage for the current search. Choose another stage or clear the stage filter.'}
                         </td>
                       </tr>
                     ) : (
@@ -1134,7 +1193,9 @@ function App() {
                           <td>{order.items.map((item) => `${item.itemName} (${item.quantity})`).join(', ')}</td>
                           <td>{order.preferredDeliveryDate}</td>
                           <td>
-                            <span className={`badge ${order.status.toLowerCase()}`}>{order.status}</span>
+                            <span className={`badge ${orderStatusBadgeClass(order.status)}`}>
+                              {formatOrderStatusLabel(order.status)}
+                            </span>
                           </td>
                           <td>{order.createdAt}</td>
                           <td className="orders-actions-col">
@@ -1144,9 +1205,9 @@ function App() {
                               value={order.status}
                               onChange={(e) => updateOrderStatus(order.id, e.target.value as OrderStatus)}
                             >
-                              {(['Draft', 'Submitted', 'Approved', 'Fulfilled', 'Cancelled'] as OrderStatus[]).map((s) => (
+                              {ORDER_STATUS_SELECT_OPTIONS.map((s) => (
                                 <option key={s} value={s}>
-                                  {s}
+                                  {formatOrderStatusLabel(s)}
                                 </option>
                               ))}
                             </select>

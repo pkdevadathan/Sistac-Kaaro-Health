@@ -25,7 +25,50 @@ export type ConsumptionRecord = {
   unit?: string
 }
 
-export type OrderStatus = 'Draft' | 'Submitted' | 'Approved' | 'Fulfilled' | 'Cancelled'
+/** Clinic → warehouse → finance flow (low-hanging operational model before ERP integration). */
+export type OrderStatus =
+  | 'Draft'
+  | 'Requested'
+  | 'Approved'
+  | 'Picked'
+  | 'Dispatched'
+  | 'Delivered'
+  | 'Confirmed'
+  | 'Paid'
+  | 'PendingPayment'
+  | 'Cancelled'
+
+/** Stable order for filters and dropdowns (workflow order). */
+export const ORDER_STATUS_SELECT_OPTIONS: OrderStatus[] = [
+  'Draft',
+  'Requested',
+  'Approved',
+  'Picked',
+  'Dispatched',
+  'Delivered',
+  'Confirmed',
+  'Paid',
+  'PendingPayment',
+  'Cancelled',
+]
+
+/** In-flight requests (duplicate-item warning while order not yet delivered). */
+export const ORDER_PIPELINE_ACTIVE_STATUSES: OrderStatus[] = [
+  'Requested',
+  'Approved',
+  'Picked',
+  'Dispatched',
+]
+
+export function orderStatusBadgeClass(status: OrderStatus): string {
+  if (status === 'PendingPayment') return 'pending-payment'
+  return status.toLowerCase()
+}
+
+export function formatOrderStatusLabel(status: OrderStatus): string {
+  if (status === 'PendingPayment') return 'Pending payment'
+  return status
+}
 
 export type ClinicOrder = {
   id: string
