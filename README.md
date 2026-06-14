@@ -79,6 +79,7 @@ This project was completed as part of the **SISTAC Consulting Program** at Purdu
 | Greeshma | Master of Engineering Management (MEM) |
 | Shrey | Master of Engineering Management (MEM) |
 | Deva | Master of Engineering Management (MEM) |
+| Olan | Master of Engineering Mangement (MEM) |
 
 **Faculty / Program:** SISTAC Consulting Program, Purdue University
 **Client Liaison:** Brendah, Kaaro Health
