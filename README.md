@@ -35,7 +35,7 @@ The dashboard runs entirely in the browser — no login, no installation require
 Sistac-Kaaro-Health/
 ├── README.md
 ├── dashboard/
-│   └── index.html              # Standalone interactive dashboard (self-contained)
+│   └── https://sistac-kaaro-health.vercel.app/              # Standalone interactive dashboard (self-contained)
 ├── data/
 │   └── kaaro_monthly_orders.xlsx   # 7-month order dataset (Sep 2025 – Mar 2026)
 ├── docs/
