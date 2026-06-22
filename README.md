@@ -18,7 +18,7 @@ Our work covers two primary deliverables:
 
 ## Live Dashboard
 
-**[View the Dashboard →](https://sistac-kaaro-health.github.io/Sistac-Kaaro-Health/dashboard/)**
+**[View the Dashboard →](https://sistac-kaaro-health.vercel.app/)**
 
 The dashboard runs entirely in the browser — no login, no installation required. It covers:
 
